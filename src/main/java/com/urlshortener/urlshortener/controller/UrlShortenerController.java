@@ -41,13 +41,17 @@ public class UrlShortenerController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    // Updated: now accepts HttpServletRequest and records analytics before redirecting
     @GetMapping("/{shortCode}")
-    @Operation(summary = "Redirect to original URL", description = "Resolves a short code and redirects to the original URL")
-    public ResponseEntity<Void> redirect(@PathVariable String shortCode) {
+    @Operation(summary = "Redirect to original URL", description = "Resolves a short code, records analytics, and redirects")
+    public ResponseEntity<Void> redirect(@PathVariable String shortCode, HttpServletRequest request) {
         return service.resolveUrl(shortCode)
-                .map(url -> ResponseEntity.status(HttpStatus.FOUND)
-                        .header(HttpHeaders.LOCATION, url.getOriginalUrl())
-                        .<Void>build())
+                .map(url -> {
+                    service.recordClick(url, request.getHeader("Referer"), request.getHeader("User-Agent"));
+                    return ResponseEntity.status(HttpStatus.FOUND)
+                            .header(HttpHeaders.LOCATION, url.getOriginalUrl())
+                            .<Void>build();
+                })
                 .orElse(ResponseEntity.notFound().build());
     }
 
@@ -59,5 +63,15 @@ public class UrlShortenerController {
                 new ShortenResponse(url.getShortCode(), baseUrl + "/" + url.getShortCode(),
                         url.getOriginalUrl(), url.getCreatedAt()));
         return ResponseEntity.ok(responses);
+    }
+
+    // New endpoint: returns click count and recent click events for a short code
+    @GetMapping("/api/urls/{shortCode}/stats")
+    @Operation(summary = "Get URL analytics", description = "Returns click count and recent click events")
+    public ResponseEntity<?> getStats(@PathVariable String shortCode) {
+        System.out.println("Received request for stats of short code: " + shortCode);
+        return service.resolveUrl(shortCode)
+                .map(url -> ResponseEntity.ok(service.getStats(url)))
+                .orElse(ResponseEntity.notFound().build());
     }
 }
